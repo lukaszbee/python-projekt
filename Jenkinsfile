@@ -4,7 +4,7 @@ pipeline {
     environment {
         // Zmienne konfiguracyjne
         // Credential typu "Username with password" o ID 'gh_login_token'
-        GITHUB_AUTH = credentials('gh_login_token') 
+        GITHUB_AUTH = credentials('gh_token') 
         
         REPO_OWNER = 'lukaszbee'
         REPO_NAME = 'python-projekt'
