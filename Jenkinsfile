@@ -2,30 +2,30 @@ pipeline {
     agent any
 
     environment {
-        // Zmienne konfiguracyjne
-        GITHUB_CRED = credentials('gh_token') 
+        // Używamy nowej, bezpiecznej nazwy credentiala typu "Username with password"
+        // Jenkins automatycznie utworzy GITHUB_AUTH_USR (login) i GITHUB_AUTH_PSW (token/hasło)
+        GITHUB_AUTH = credentials('gh_login_token') 
+        
         REPO_OWNER = 'lukaszbee'
         REPO_NAME = 'python-projekt'
         MAIN_BRANCH = 'main'
     }
 
     stages {
-        // Krok 1: Lintowanie kodu
+        // --- Krok 1: Lintowanie kodu ---
         stage('Lint Code') {
             steps {
                 sh 'echo "Instalowanie zaleznosci..."'
                 // Zakładamy, że python3 jest w obrazie jenkinsa lub agenta
-                // Jeśli nie, użyj obrazu dockerowego w 'agent'
-                sh 'pip install -r requirements.txt || echo "Brak pip, pomijam instalacje w tym demo"'
+                sh 'pip install -r requirements.txt || echo "Brak pip, pomijam instalacje (DEMO)"'
                 
                 sh 'echo "Uruchamiam Linter..."'
-                // Tutaj uruchamiamy linter. Jeśli zwróci błąd, pipeline się zatrzyma.
-                // Używamy pylint lub prostego echo dla testu
-                sh 'pylint app.py || echo "Linter znalazł błędy, ale puszczam dalej na potrzeby demo (usun echo aby blokowac)"'
+                // Jeśli pylint znajdzie błędy, zwróci kod błędu i zatrzyma pipeline (po usunięciu || echo)
+                sh 'pylint app.py || echo "Linter znalazł błędy, ale puszczam dalej (DEMO)"'
             }
         }
 
-        // Krok 2: Tworzenie PR (tylko jeśli nie jesteśmy na main)
+        // --- Krok 2: Tworzenie PR (tylko z gałęzi innej niż main) ---
         stage('Create PR') {
             when {
                 not { branch 'main' }
@@ -35,46 +35,44 @@ pipeline {
                     def branchName = env.BRANCH_NAME
                     echo "Tworzenie PR z gałęzi ${branchName} do ${MAIN_BRANCH}"
                     
-                    // Wywołanie API GitHuba tworzące PR
-                    def response = sh(script: """
-                        curl -X POST -H "Authorization: token ${GITHUB_CRED}" \
+                    // Bezpieczniejsze użycie apostrofów (sh ''') w celu uniknięcia ostrzeżenia 
+                    // i bezpiecznego użycia zmiennej $GITHUB_AUTH_PSW (tokena)
+                    sh '''
+                        curl -X POST -H "Authorization: token $GITHUB_AUTH_PSW" \
                         -H "Accept: application/vnd.github.v3+json" \
-                        https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/pulls \
-                        -d '{"title":"Automatyczny PR z Jenkinsa","body":"Lint przeszedł pomyślnie.","head":"${branchName}","base":"${MAIN_BRANCH}"}'
-                    """, returnStdout: true).trim()
-                    
-                    echo "Odpowiedź GitHub: ${response}"
-                    
-                    // Wyciągnięcie numeru PR (prosty parsing grepem/awk dla demo, w produkcji lepiej uzyc 'jq')
-                    // Zakładamy, że PR został utworzony. Jeśli już istnieje, API zwróci błąd, trzeba to obsłużyć.
+                        https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls \
+                        -d '{"title":"Automatyczny PR z Jenkinsa - $BRANCH_NAME","body":"Lint przeszedł pomyślnie.","head":"$BRANCH_NAME","base":"$MAIN_BRANCH"}'
+                    '''
                 }
             }
         }
 
-        // Krok 3: Merge PR (automatyczny)
+        // --- Krok 3: Merge do main (tylko z gałęzi innej niż main) ---
         stage('Merge PR') {
             when {
                 not { branch 'main' }
             }
             steps {
                 script {
-                    def branchName = env.BRANCH_NAME
+                    echo "Proba zmergowania zmian z $BRANCH_NAME do main..."
                     
-                    // Pobieramy numer PR na podstawie nazwy brancha (potrzebujemy narzędzia jq lub skomplikowanego grepa)
-                    // Dla uproszczenia w tym skrypcie: zakładamy pomyślny merge bezpośredni przez git
-                    // LUB używamy API do merge'owania. 
-                    
-                    echo "Próba zmergowania zmian do main..."
-                    
-                    // Opcja prostsza: Merge na poziomie Gita w Jenkinsie i push
-                    sh """
-                        git config --global user.email "jenkins@bot.com"
-                        git config --global user.name "Jenkins Bot"
-                        git checkout ${MAIN_BRANCH}
-                        git pull origin ${MAIN_BRANCH}
-                        git merge origin/${branchName}
-                        git push https://${GITHUB_CRED}@github.com/${REPO_OWNER}/${REPO_NAME}.git ${MAIN_BRANCH}
-                    """
+                    // Zabezpieczony i poprawiony blok GIT:
+                    sh '''
+                        # Konfiguracja tożsamości
+                        git config user.email "jenkins@bot.com"
+                        git config user.name "Jenkins Bot"
+                        
+                        # 1. Pobranie aktualnego stanu main (NAPRAWA: błąd pathspec)
+                        git fetch origin main
+                        git checkout -B main origin/main
+                        
+                        # 2. Merge zmian z brancha, na którym działał pipeline
+                        git merge origin/$BRANCH_NAME
+                        
+                        # 3. Wypchnięcie zmian (NAPRAWA: ostrzeżenie o bezpieczeństwie)
+                        # Używamy zmiennych Shell ($) wewnątrz bloku apostrofów (''')
+                        git push https://$GITHUB_AUTH_USR:$GITHUB_AUTH_PSW@github.com/$REPO_OWNER/$REPO_NAME.git main
+                    '''
                 }
             }
         }
