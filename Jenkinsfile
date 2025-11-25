@@ -3,9 +3,9 @@ pipeline {
 
     environment {
         // Zmienne konfiguracyjne
-        GITHUB_CRED = credentials('github-api-token') 
-        REPO_OWNER = 'TWOJA_NAZWA_UZYTKOWNIKA'
-        REPO_NAME = 'NAZWA_REPOZYTORIUM'
+        GITHUB_CRED = credentials('gh_token') 
+        REPO_OWNER = 'lukaszbee'
+        REPO_NAME = 'python-projekt'
         MAIN_BRANCH = 'main'
     }
 
